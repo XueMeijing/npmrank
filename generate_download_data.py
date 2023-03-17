@@ -2,26 +2,19 @@
 根据source.md中的库名获取npm下载数据
 '''
 import requests
-import json
 import asyncio
 import re
 import datetime
+from bs4 import BeautifulSoup
 
-from sql import init_db, query_db
-import config
+from db import init_db, SQLDB
 
 SOURCE_FILE = 'source.md'
-
 NPM_BASE_URL = 'https://www.npmjs.com/package/'
-'''
-total: https://api.npmjs.org/downloads/point/2015-02-01:2018-02-08/express
-range: https://api.npmjs.org/downloads/range/2015-02-01:2018-02-08/express
-More info at https://github.com/npm/registry/blob/master/docs/download-counts.md
-'''
 NPM_BASE_API_POINT_URL = 'https://api.npmjs.org/downloads/point/'
 
 # npm页面控制台network复制npmjs接口，copy as fetch，然后粘贴到console，再复制参数到postman请求接口，在右边代码块找到python请求代码
-headers = {
+npm_headers = {
   'accept': '*/*',
   'accept-language': 'zh,en;q=0.9,zh-CN;q=0.8',
   'manifest-hash': '2c383d069ae9a4c734cc',
@@ -41,7 +34,29 @@ headers = {
   'credentials': 'include',
 }
 
+github_headers = {
+  'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+  'accept-language': 'zh,en;q=0.9,zh-CN;q=0.8',
+  'cache-control': 'max-age=0',
+  'if-none-match': 'W/"396aa0eef163ad59fc27f13d1f34d3d5"',
+  'sec-ch-ua': '"Chromium";v="110", "Not A(Brand";v="24", "Google Chrome";v="110"',
+  'sec-ch-ua-mobile': '?0',
+  'sec-ch-ua-platform': '"macOS"',
+  'sec-fetch-dest': 'document',
+  'sec-fetch-mode': 'navigate',
+  'sec-fetch-site': 'same-origin',
+  'sec-fetch-user': '?1',
+  'upgrade-insecure-requests': '1',
+  'referrerPolicy': 'no-referrer-when-downgrade',
+  'body': '',
+  'method': 'GET',
+  'mode': 'cors',
+  'credentials': 'include',
+}
+
 init_db()
+
+sql_obj = SQLDB()
 
 '''
 从md中拿到库名并存到数据库
@@ -53,29 +68,27 @@ with open(SOURCE_FILE, 'r') as f:
     href = re.findall(r'\((.*?)\)', line)
     print('line\n', line)
     if name and href:
-      get_data_query = '''SELECT * FROM package WHERE id = ?'''
-      record = query_db(get_data_query, (name[0],), one=True)
-      if record is None:
-        insert_data_query = ''' INSERT INTO package
-                                ('id', 'name', 'npm_url', 'github_url', 'homepage_url', 'last_publish')
-                                VALUES(?,?,?,?,?) '''
-        query_db(insert_data_query, (name[0], name[0], NPM_BASE_URL + name[0], '', '', ''))
-
+      get_pkgbase_query = '''SELECT * FROM pkgbase WHERE id = ?'''
+      record_base = sql_obj.get(get_pkgbase_query, (name[0],), one=True)
+      if record_base is None:
+        insert_data_query = '''
+                            INSERT INTO pkgbase
+                            ('id', 'npm_url', 'github_url', 'homepage_url', 'version', 'license', 'github_star', 'size', created, updated)
+                            VALUES(?,?,?,?,?,?,?,?,?,?)
+                            '''
+        sql_obj.update(insert_data_query, (name[0], NPM_BASE_URL + name[0], '', '', '', '', 0, '', 0, 0))
 
 '''
 获取某一时期的下载量
 '''
 def get_point_downloads(date_range, package_name):
   href = f'{NPM_BASE_API_POINT_URL}{date_range}/{package_name}'
-  print('href', href)
   response = requests.request("GET", href)
   data = response.json()
-  print('data', data)
   return data['downloads']
 
-
 '''
-获取全部下载量，npm每次最多返回18个月的数据，所以分段下载
+获取全部下载量，npm每次最多返回18个月的数据，所以分段下载后再累加
 '''
 def get_point_all_downloads(package_name):
   start_time = 2015
@@ -83,83 +96,137 @@ def get_point_all_downloads(package_name):
   all_downloads = 0
 
   for year in range(start_time, end_time + 1):
-    column_name = f'downloads_{year}'
+    dltype = f'{year}'
     date_range = f'{year}-01-01:{year + 1}-01-01'
     print('date_range', date_range)
 
-    if config.ONLY_UPDATE_THIS_YEAR and year != end_time:
-        get_data_query = f'''SELECT {column_name} FROM package
-                            WHERE id = ?
-                          '''
-        data = query_db(get_data_query, (package_name,), one=True)
-        all_downloads += data[f'{column_name}']
-        print('old downloads', data[f'{column_name}'])
-    else:
-      downloads = get_point_downloads(date_range, record['name'])
+    get_data_query = '''
+                        SELECT * FROM pkgdownload
+                        WHERE id = ? AND dltype = ?
+                        '''
+    exist_record = sql_obj.get(get_data_query, (package_name, dltype), one=True)
+
+    if exist_record is None:
+      downloads = get_point_downloads(date_range, package_name)
       all_downloads += downloads
       print('new downloads',downloads)
-      update_data_query = f'''UPDATE package
-                              SET {column_name} = ?
-                              WHERE id = ?;
-                          '''
-      query_db(update_data_query, (downloads, package_name))
+      add_data_query = '''
+                      INSERT INTO pkgdownload
+                      ('id', 'dltype', 'downloads', 'timepoint')
+                      VALUES(?,?,?,?)
+                      '''
+      sql_obj.update(add_data_query, (package_name, dltype, downloads, datetime.datetime.now()))
+    else:
+      if year == end_time:
+        downloads = get_point_downloads(date_range, package_name)
+        all_downloads += downloads
+        print('new downloads',downloads)
+        update_data_query = '''
+                            UPDATE pkgdownload
+                            SET downloads = ?, timepoint = ?
+                            WHERE id = ? AND dltype = ?
+                            '''
+        sql_obj.update(update_data_query, (downloads, datetime.datetime.now(), package_name, dltype))
+      else:
+        get_downloads_query = '''
+                              SELECT * FROM pkgdownload
+                              WHERE id = ? AND dltype = ?
+                              '''
+        record = sql_obj.get(get_downloads_query, (package_name, dltype), one=True)
+        all_downloads += record['downloads']
+        print('old downloads', record['downloads'])
   return all_downloads
 
 '''
 获取github数据
+使用npm返回的ghapi获取star每小时限速60,所以用爬虫
 '''
-def get_github_info(github_url):
-  response = requests.request("GET", github_url)
-  data = response.json()
-  return data
+def set_github_info(github_url, package_name):
+  response = requests.get(github_url, headers=github_headers)
+  soup = BeautifulSoup(response.content, "html.parser")
+  star = soup.find("span", class_='text-bold').get_text() if soup.find("span", class_='text-bold') else 0
+  update_pkgbase_query =  '''
+                            UPDATE pkgbase
+                            SET github_star = ?
+                            WHERE id = ?
+                            '''
+  print('package_name star', package_name, star)
+  sql_obj.update(update_pkgbase_query, (star, package_name))
 
 '''
 更新下载量
 '''
 async def main():
-  all_data_query = '''SELECT * FROM package'''
-  records = query_db(all_data_query)
+  all_data_query = '''SELECT * FROM pkgbase'''
+  records = sql_obj.get(all_data_query)
   for index, record in enumerate(records):
     while True:
-      print('name', record['name'], index)
+      print('id', record['id'], index)
       # 下载中断后，重新下载跳过已下载数据
-      start_index = 225
-      if index < start_index:
-        break
+      # start_index = 225
+      # if index < start_index:
+      #   break
       try:
         '''
         获取下载量并写入数据库
         '''
-        href = NPM_BASE_URL + record['name']
-        npm_response = requests.request("GET", href, headers=headers)
+        href = NPM_BASE_URL + record['id']
+        npm_response = requests.request("GET", href, headers=npm_headers)
         npm_data = npm_response.json()
-        downloads = npm_data['downloads']
 
+        # pkgbase
         github_url = npm_data['packageVersion'].get('repository', '')
         homepage_url = npm_data['packageVersion'].get('homepage', '')
-        last_publish = npm_data['capsule']['lastPublish'].get('time', '')
-        week_downloads = json.dumps(downloads)
-        last_day_downloads = get_point_downloads('last-day', record['name'])
-        print('last_day_downloads', last_day_downloads)
-        last_week_downloads = get_point_downloads('last-week', record['name'])
-        print('last_week_downloads', last_week_downloads)
-        last_month_downloads = get_point_downloads('last-month', record['name'])
-        print('last_month_downloads', last_month_downloads)
-        last_year_downloads = get_point_downloads('last-year', record['name'])
-        print('last_year_downloads', last_year_downloads)
+        version = npm_data['packument'].get('version', '')
+        license = npm_data['packument'].get('license', '')
+        # 有仓库两个license
+        license = license if type(license) == str else '-'
+        versions = npm_data['packument'].get('versions') if npm_data['packument'].get('versions') else []
+        updated = datetime.datetime.fromtimestamp(versions[0]['date']['ts'] / 1000).strftime("%Y-%m-%d %H:%M:%S")
+        created = datetime.datetime.fromtimestamp(versions[len(versions) - 1]['date']['ts'] / 1000).strftime("%Y-%m-%d %H:%M:%S")
 
-        all_time_downloads = get_point_all_downloads(record['name'])
-        print('all_time_downloads', all_time_downloads)
-        github_star = 0
-        if npm_data.get('ghapi', None):
-          github_data = get_github_info(npm_data['ghapi'])
-          if github_data.get('stargazers_count', None):
-            github_star = github_data['stargazers_count']
+        update_pkgbase_query =  '''
+                                UPDATE pkgbase
+                                SET github_url = ?, homepage_url = ?, version = ?, license = ?, updated = ?, created = ?
+                                WHERE id = ?
+                                '''
+        sql_obj.update(update_pkgbase_query, (github_url, homepage_url, version, license, updated, created, record['id']))
 
-        update_data_query = ''' UPDATE package
-                                SET github_url = ?, homepage_url = ?, last_publish = ?, week_downloads = ?, last_day_downloads = ?, last_week_downloads = ?, last_month_downloads = ?, last_year_downloads = ?, all_time_downloads = ?, github_star= ?
-                                WHERE id = ? '''
-        query_db(update_data_query, (github_url, homepage_url, last_publish, week_downloads, last_day_downloads, last_week_downloads, last_month_downloads, last_year_downloads, all_time_downloads, github_star, record['name']))
+        # pkgdownload
+        base_dltype = ['last-day', 'last-week', 'last-month', 'last-year', 'all-time']
+        for dltype in base_dltype:
+          if dltype == 'all-time':
+            downloads = get_point_all_downloads(record['id'])
+          else:
+            downloads = get_point_downloads(dltype, record['id'])
+          print('dltype', dltype)
+          print('downloads', downloads)
+          replaced_dltype = re.sub(r'\-', '_', dltype)
+          get_data_query =  '''
+                            SELECT * FROM pkgdownload
+                            WHERE id = ? AND dltype = ?
+                            '''
+          exist_record = sql_obj.get(get_data_query, (record['id'], replaced_dltype), one=True)
+
+          if exist_record is None:
+            add_pkgdownload_query =  '''
+                                    INSERT INTO pkgdownload
+                                    ('id', 'dltype', 'downloads', 'timepoint')
+                                    VALUES(?,?,?,?)
+                                    '''
+            sql_obj.update(add_pkgdownload_query, (record['id'], replaced_dltype, downloads, datetime.datetime.now()))
+          else:
+            update_pkgdownload_query =  '''
+                                      UPDATE pkgdownload
+                                      SET downloads = ?, timepoint = ?
+                                       WHERE id = ? AND dltype = ?
+                                      '''
+            sql_obj.update(update_pkgdownload_query, (downloads, datetime.datetime.now(), record['id'], replaced_dltype))
+        
+        # github数据 有仓库是git:协议，不支持
+        if github_url and github_url.startswith('https://'):
+          set_github_info(github_url, record['id'])
+
         # 暂停两秒，请求太频繁会报429，2秒间隔大概每次请求100条会限速
         await asyncio.sleep(2)
         break
