@@ -15,8 +15,10 @@ async def get_packages(rank_type):
   top = request.args.get('top')
   if top is None:
     top = 30
-  if top > 200:
+  elif int(top) > 200:
     top = 200
+  else:
+    top = int(top)
   rank_types = get_rank_types()
   rank_type =  next((c['value'] for c in rank_types if c['value'] == rank_type), None)
 
