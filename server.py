@@ -72,10 +72,10 @@ def get_rank_types():
   return records
 
 def convert_type(record):
-    type = re.sub(r'\_', '-', record['dltype'])
+    dltype = re.sub(r'\_', '-', record['dltype'])
     return {
-      'label': type,
-      'value': type
+      'label': dltype,
+      'value': dltype
     }
 
 if __name__ == '__main__':
