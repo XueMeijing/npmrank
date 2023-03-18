@@ -45,7 +45,8 @@
 
 - 使用代理，同时发出多个请求
 - 增加定时任务，每天UTC4点更新数据
-- 目前是前 30 条，希望能展示更多的数据，但是图表不方便展示更多的数据，
+- 目前是前 30 条，希望能展示更多的数据，但是图表不方便展示更多的数据
+- 使用 https://api.github.com/repos/isaacs/node-glob/pulls?per_page=1 > base > repo > stargazers_count 替换github爬虫获取的star
 
 # 注意
 
