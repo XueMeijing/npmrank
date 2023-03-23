@@ -1,14 +1,17 @@
 # Npm Rank
 
-根据 2019 年 8 月 16 的 npm 下载量前 1000 的包名，获取这些包现在的下载量排行，默认展示前30。前端仓库地址为 [npmrank-v](https://github.com/XueMeijing/npmrank-v)
+根据 2019 年 8 月 16 的 npm top1000 的包名，获取这些包现在的下载量排行，默认展示前30。地址 https://www.npmrank.net/
+ ，前端仓库地址为 [npmrank-v](https://github.com/XueMeijing/npmrank-v) 
+ 
+![image](https://user-images.githubusercontent.com/35559153/226794702-32a27544-1ed9-4155-9bcf-9b441f0c2d23.png)
 
 # 数据来源
 
 - 数据使用的包名来自 [anvaka](https://gist.github.com/anvaka/8e8fa57c7ee1350e3491) 2019 年爬取的 top1000 数据，距今三四年的时间，但是老的包一般被依赖的多下载量大，所以对前面的排名影响应该不是很大
 - 获取数据使用的 api 来自 [npm](https://github.com/npm/registry/blob/master/docs/download-counts.md)
-- npm 每天在 UTC 凌晨不久后更新数据，所以这里选择在 UTC 3 点更新新的数据，因为这是协调世界时，这会产生一些有点不直观的结果
+- npm 每天在 UTC 凌晨不久后更新数据，所以这里选择在 UTC 3 点 使用 crontab 定时任务更新新的数据，持续大约1～2小时，因为这是协调世界时，这会产生一些有点不直观的结果
 - 总数据为 2015 年至今的数据
-- github star 来自爬到的 github 页面数据，如果使用 github api 每小时每个 ip会限速 60 次请求，[详见文档](https://docs.github.com/en/rest/overview/resources-in-the-rest-api?apiVersion=2022-11-28#rate-limiting)
+- github star 来自爬到的 github 页面数据
 
 如果有看到下载量比较多但是不在`source.md`的包，欢迎提 issue
 
@@ -44,9 +47,7 @@
 # 待办
 
 - 使用代理，同时发出多个请求
-- 增加定时任务，每天UTC4点更新数据
 - 目前是前 30 条，希望能展示更多的数据，但是图表不方便展示更多的数据
-- 使用 https://api.github.com/repos/isaacs/node-glob/pulls?per_page=1 > base > repo > stargazers_count 替换github爬虫获取的star
 
 # 注意
 

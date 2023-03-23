@@ -80,3 +80,5 @@ def convert_type(record):
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=8080)
+    # 服务器部署使用 0.0.0.0 对外访问
+    # app.run(host='0.0.0.0', port=8080)

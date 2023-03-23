@@ -236,5 +236,5 @@ async def main():
         await asyncio.sleep(60)
         continue
     print('--------------')
-
+  print(f'{datetime.datetime.now()} 数据库更新成功')
 asyncio.run(main())
