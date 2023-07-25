@@ -230,6 +230,9 @@ async def main():
         # 暂停两秒，请求太频繁会报429，2秒间隔大概每次请求100条会限速
         await asyncio.sleep(2)
         break
+      except KeyError as ke:
+        print('ke', ke)
+        break
       except Exception as e:
         # 请求报错过60秒重试
         print('error ------------------\n', e)
